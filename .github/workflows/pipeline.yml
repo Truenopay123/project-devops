@@ -98,6 +98,8 @@ jobs:
     name: Docker + GHCR
     runs-on: ubuntu-latest
     needs: [sonarqube, k6]
+    outputs:
+      image: ${{ steps.img.outputs.image }}
     steps:
       - uses: actions/checkout@v4
 
@@ -194,29 +196,29 @@ jobs:
             "echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.repository_owner }} --password-stdin"
 
       - name: Desplegar contenedor en target
+        env:
+          IMAGE: ${{ needs.docker.outputs.image }}
+          TARGET: ${{ steps.state.outputs.target }}
+          PORT: ${{ steps.state.outputs.target_port }}
         run: |
           ssh \
             -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=no \
             -o ProxyJump=${{ secrets.GCP_USER }}@${{ secrets.BASTION_IP }} \
             -i ~/.ssh/id_ed25519 \
-            ${{ secrets.GCP_USER }}@${{ secrets.DOCKER_VM_IP }} << 'EOF'
-          set -e
-          TARGET=${{ steps.state.outputs.target }}
-          PORT=${{ steps.state.outputs.target_port }}
-          IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}:latest
-          docker pull $IMAGE
-          docker stop app-$TARGET 2>/dev/null || true
-          docker rm   app-$TARGET 2>/dev/null || true
-          docker run -d \
-            --name app-$TARGET \
-            --restart unless-stopped \
-            -p $PORT:3000 \
-            -e NODE_ENV=production \
-            -e APP_ENV=$TARGET \
-            $IMAGE
-          echo "app-$TARGET corriendo en puerto $PORT"
-          EOF
+            ${{ secrets.GCP_USER }}@${{ secrets.DOCKER_VM_IP }} \
+            "set -e
+             docker pull $IMAGE:latest
+             docker stop app-$TARGET 2>/dev/null || true
+             docker rm   app-$TARGET 2>/dev/null || true
+             docker run -d \
+               --name app-$TARGET \
+               --restart unless-stopped \
+               -p $PORT:3000 \
+               -e NODE_ENV=production \
+               -e APP_ENV=$TARGET \
+               $IMAGE:latest
+             echo 'app-$TARGET corriendo en puerto $PORT'"
 
       - name: Health check
         run: |
@@ -264,6 +266,10 @@ jobs:
           chmod 600 ~/.ssh/config
 
       - name: Generar config Nginx con envsubst y recargar
+        env:
+          DEPLOY_COLOR: ${{ needs.deploy.outputs.target }}
+          TARGET_PORT: ${{ needs.deploy.outputs.target_port }}
+          DOCKER_IP: ${{ secrets.DOCKER_VM_IP }}
         run: |
           ssh \
             -o IdentitiesOnly=yes \
@@ -271,9 +277,9 @@ jobs:
             -o ProxyJump=${{ secrets.GCP_USER }}@${{ secrets.BASTION_IP }} \
             -i ~/.ssh/id_ed25519 \
             ${{ secrets.GCP_USER }}@${{ secrets.NGINX_VM_IP }} \
-            "export DEPLOY_COLOR=${{ needs.deploy.outputs.target }}
-             export TARGET_PORT=${{ needs.deploy.outputs.target_port }}
-             export DOCKER_VM_IP=${{ secrets.DOCKER_VM_IP }}
+            "export DEPLOY_COLOR=$DEPLOY_COLOR
+             export TARGET_PORT=$TARGET_PORT
+             export DOCKER_VM_IP=$DOCKER_IP
              cat > /tmp/app.conf.template << 'TMPL'
           upstream app_backend {
               server \${DOCKER_VM_IP}:\${TARGET_PORT};
@@ -296,7 +302,7 @@ jobs:
                | sudo tee /etc/nginx/sites-available/app.conf > /dev/null
              sudo ln -sf /etc/nginx/sites-available/app.conf /etc/nginx/sites-enabled/app.conf
              sudo nginx -t && sudo systemctl reload nginx
-             echo 'Nginx apuntando a ${{ needs.deploy.outputs.target }} en puerto ${{ needs.deploy.outputs.target_port }}'"
+             echo 'Nginx actualizado'"
 
       - name: Resumen del deploy
         run: |
