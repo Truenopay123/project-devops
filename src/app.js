@@ -41,4 +41,21 @@ app.get('/metrics', async (req, res) => {
 
 app.use('/api/productos', productosRouter);
 
+app.get('/', (req, res) => {
+  res.json({
+    proyecto: 'project-devops',
+    version: '1.0.0',
+    env: process.env.APP_ENV || 'local',
+    endpoints: [
+      'GET /health',
+      'GET /metrics',
+      'GET /api/productos',
+      'GET /api/productos/:id',
+      'POST /api/productos',
+      'PUT /api/productos/:id',
+      'DELETE /api/productos/:id'
+    ]
+  });
+});
+
 module.exports = { app, register };
