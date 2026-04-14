@@ -72,6 +72,10 @@ jobs:
 
       - name: Instalar k6
         run: |
+          sudo apt-get update
+          sudo apt-get install -y gnupg2
+          mkdir -p ~/.gnupg
+          chmod 700 ~/.gnupg
           sudo gpg --no-default-keyring \
             --keyring /usr/share/keyrings/k6-archive-keyring.gpg \
             --keyserver hkp://keyserver.ubuntu.com:80 \
